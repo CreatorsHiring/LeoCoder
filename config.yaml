@@ -1,0 +1,99 @@
+# Smart LLM Router Configuration
+
+# Local model settings
+local:
+  # Providers to check for local models
+  providers:
+    - name: ollama
+      enabled: true
+      base_url: "http://localhost:11434"
+    - name: lmstudio
+      enabled: true
+      base_url: "http://localhost:1234"
+  
+  # Models that can run on your hardware (i5-8th Gen, 128MB VRAM)
+  # These should be small quantized models
+  preferred_models:
+    - phi-3-mini
+    - tinyllama
+    - stablelm-2-zephyr
+    - qwen2.5-coder-1.5b
+    - deepseek-coder-1.3b
+  
+  # Maximum model size in GB that your system can handle
+  max_model_size_gb: 4
+  
+  # Use CPU inference (since VRAM is limited)
+  prefer_cpu: true
+
+# Cloud model settings
+cloud:
+  providers:
+    - name: groq
+      enabled: true
+      api_key_env: "GROQ_API_KEY"
+      default_model: "llama-3.1-8b-instant"
+      free_tier: true
+    - name: gemini
+      enabled: true
+      api_key_env: "GEMINI_API_KEY"
+      default_model: "gemini-1.5-flash"
+      free_tier: true
+    - name: anthropic
+      enabled: false
+      api_key_env: "ANTHROPIC_API_KEY"
+      default_model: "claude-sonnet-4-20250514"
+      free_tier: false
+  
+  # Token budget management
+  token_budget:
+    daily_limit: 100000  # tokens per day
+    warning_threshold: 0.8  # warn at 80% usage
+
+# Routing rules
+routing:
+  # Task complexity thresholds
+  complexity:
+    # Use local for these simple tasks
+    local_threshold: 3  # out of 10
+    
+    # Force cloud for complex tasks
+    cloud_threshold: 7  # out of 10
+  
+  # Task type routing
+  task_types:
+    # Always use local for these (saves tokens)
+    local_preferred:
+      - "code_completion"
+      - "simple_refactor"
+      - "explain_code"
+      - "find_bug"
+      - "format_code"
+    
+    # Always use cloud for these (needs intelligence)
+    cloud_required:
+      - "architecture_design"
+      - "complex_refactor"
+      - "security_audit"
+      - "new_feature_design"
+    
+    # Smart routing based on complexity
+    smart_routing:
+      - "debug"
+      - "optimize"
+      - "test_generation"
+      - "documentation"
+
+# Vibe coding session settings
+vibe_coding:
+  # Auto-save context to reduce re-tokenization
+  context_cache: true
+  cache_ttl_minutes: 30
+  
+  # Chunk large files to reduce token usage
+  file_chunking:
+    enabled: true
+    max_lines_per_chunk: 100
+  
+  # Track token savings
+  track_savings: true

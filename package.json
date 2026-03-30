@@ -1,0 +1,44 @@
+{
+  "name": "leocoder",
+  "version": "0.1.0",
+  "description": "LeoCoder - Smart LLM router for vibe coding",
+  "main": "dist/index.js",
+  "bin": {
+    "leocoder": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js chat",
+    "dev": "ts-node src/index.ts",
+    "lint": "eslint src --ext .ts"
+  },
+  "keywords": [
+    "ai",
+    "coding",
+    "llm",
+    "vibe-coding",
+    "ollama",
+    "router"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.6.0",
+    "chalk": "^4.1.2",
+    "commander": "^11.1.0",
+    "dotenv": "^16.3.1",
+    "inquirer": "^8.2.6",
+    "ora": "^5.4.1",
+    "tiktoken": "^1.0.11",
+    "yaml": "^2.3.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/inquirer": "^8.2.10",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "eslint": "^8.54.0",
+    "typescript": "^5.3.0",
+    "ts-node": "^10.9.2"
+  }
+}
