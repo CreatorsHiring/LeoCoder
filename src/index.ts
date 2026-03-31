@@ -16,23 +16,6 @@ import { ShellTools } from './tools/shell';
 // Load environment variables
 dotenvConfig();
 
-// Animation frames for thinking indicator
-const THINKING_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-const LION_COLORS = [
-  chalk.hex('#FF8C00'),  // Dark orange
-  chalk.hex('#FFA500'),  // Orange
-  chalk.hex('#FFB347'),  // Pastel orange
-  chalk.hex('#FFD700'),  // Gold
-  chalk.hex('#FFA500'),  // Orange
-  chalk.hex('#FF8C00'),  // Dark orange
-];
-
-// Lion gradient text helper
-function lionGradient(text: string): string {
-  const chars = text.split('');
-  return chars.map((char, i) => LION_COLORS[i % LION_COLORS.length](char)).join('');
-}
-
 const program = new Command();
 
 program
@@ -75,61 +58,182 @@ program
 
 program.parse();
 
-/**
- * Display new improved header with LEO in lion gradient and model on the right
- */
-function displayNewHeader(modelName: string): void {
-  const width = 80;
-  const modelText = `(${modelName})`;
+// ─── Qwen-style pixel font characters (5×7 grid using block chars) ───────────
 
-  console.log();
-  
-  // Large LEO text using block letters - properly formatted
-  const leoLines = [
-    chalk.hex('#FFD700')('██') + chalk.hex('#FFA500')('█') + chalk.hex('#FF8C00')('█') + chalk.hex('#FFD700')('      ') + chalk.hex('#FFD700')('██████') + chalk.hex('#FFA500')('██') + chalk.hex('#FF8C00')('      ') + chalk.hex('#FFD700')(' ██████ ') + chalk.hex('#FFD700')('       ') + chalk.gray(modelText),
-    chalk.hex('#FFD700')('██') + chalk.hex('#FFA500')('█') + chalk.hex('#FF8C00')('█') + chalk.hex('#FFD700')('      ') + chalk.hex('#FFD700')('██') + chalk.hex('#FFA500')('    ██') + chalk.hex('#FF8C00')('      ') + chalk.hex('#FFD700')('██') + chalk.hex('#FFA500')('    ██') + chalk.hex('#FFD700')('       ') + chalk.gray('Smart LLM Router for Vibe Coding'),
-    chalk.hex('#FFD700')('██') + chalk.hex('#FFA500')('█') + chalk.hex('#FF8C00')('█') + chalk.hex('#FFD700')('      ') + chalk.hex('#FFD700')('██████') + chalk.hex('#FFA500')('██') + chalk.hex('#FF8C00')('      ') + chalk.hex('#FFD700')('██') + chalk.hex('#FFA500')('    ██') + chalk.hex('#FFD700')('       ') + chalk.gray('Local-First • Cloud Fallback • Token Saver'),
-    chalk.hex('#FFD700')('██') + chalk.hex('#FFA500')('█') + chalk.hex('#FF8C00')('█') + chalk.hex('#FFD700')('      ') + chalk.hex('#FFD700')('██') + chalk.hex('#FFA500')('    ██') + chalk.hex('#FF8C00')('      ') + chalk.hex('#FFD700')('██') + chalk.hex('#FFA500')('    ██') + chalk.hex('#FFD700')(''),
-    chalk.hex('#FFD700')('██') + chalk.hex('#FFA500')('█') + chalk.hex('#FF8C00')('█') + chalk.hex('#FFD700')('      ') + chalk.hex('#FFD700')('██████') + chalk.hex('#FFA500')('██') + chalk.hex('#FF8C00')('      ') + chalk.hex('#FFD700')(' ██████ '),
-    chalk.hex('#FFD700')('████████') + chalk.hex('#FFD700')('      ') + chalk.hex('#FFD700')('██') + chalk.hex('#FFA500')('    ██') + chalk.hex('#FFD700')('      ') + chalk.hex('#FFD700')('██') + chalk.hex('#FFA500')('    ██'),
-    chalk.hex('#FFD700')('        ') + chalk.hex('#FFD700')(' ██████ ') + chalk.hex('#FFD700')('       ') + chalk.hex('#FFD700')(' ██████ '),
-  ];
-  
-  for (const line of leoLines) {
-    console.log(line);
+const PIXEL_CHARS: Record<string, string[]> = {
+  L: [
+    '█░░░░',
+    '█░░░░',
+    '█░░░░',
+    '█░░░░',
+    '█░░░░',
+    '█░░░░',
+    '█████',
+  ],
+  E: [
+    '█████',
+    '█░░░░',
+    '█░░░░',
+    '████░',
+    '█░░░░',
+    '█░░░░',
+    '█████',
+  ],
+  O: [
+    '░███░',
+    '█░░░█',
+    '█░░░█',
+    '█░░░█',
+    '█░░░█',
+    '█░░░█',
+    '░███░',
+  ],
+  C: [
+    '░████',
+    '█░░░░',
+    '█░░░░',
+    '█░░░░',
+    '█░░░░',
+    '█░░░░',
+    '░████',
+  ],
+  D: [
+    '████░',
+    '█░░░█',
+    '█░░░█',
+    '█░░░█',
+    '█░░░█',
+    '█░░░█',
+    '████░',
+  ],
+  R: [
+    '████░',
+    '█░░░█',
+    '█░░░█',
+    '████░',
+    '█░█░░',
+    '█░░█░',
+    '█░░░█',
+  ],
+  '.': [
+    '░░',
+    '░░',
+    '░░',
+    '░░',
+    '░░',
+    '░░',
+    '██',
+  ],
+};
+
+const LOGO_COLORS = [
+  chalk.hex('#FFD700'),
+  chalk.hex('#FFC200'),
+  chalk.hex('#FFB300'),
+  chalk.hex('#FFA500'),
+  chalk.hex('#FF9500'),
+  chalk.hex('#FF8C00'),
+  chalk.hex('#FF8000'),
+];
+
+/**
+ * Render pixel-font word into colored rows
+ */
+function renderPixelWord(word: string): string[] {
+  const charRows = 7;
+  const rows: string[] = Array(charRows).fill('');
+
+  for (const letter of word.toUpperCase()) {
+    const glyph = PIXEL_CHARS[letter] ?? PIXEL_CHARS['.'];
+    for (let row = 0; row < charRows; row++) {
+      rows[row] += (glyph[row] ?? '░░░░░') + ' ';
+    }
   }
-  
-  console.log();
-  console.log(chalk.hex('#FFA500')('─'.repeat(width)));
-  
-  // Commands section
-  const commands = chalk.cyan('/help') + chalk.gray('  |  ') + chalk.cyan('/models') + chalk.gray('  |  ') + chalk.cyan('/stats') + chalk.gray('  |  ') + chalk.green('exit');
-  console.log(chalk.gray('Commands:  ') + commands);
-  console.log(chalk.hex('#FFA500')('─'.repeat(width)));
-  console.log();
+
+  return rows.map((row, i) => {
+    const color = LOGO_COLORS[i];
+    // Color '█' chars, leave '░' and ' ' as dim
+    return row
+      .split('')
+      .map(ch => (ch === '█' ? color(ch) : chalk.hex('#1a1a1a')(ch)))
+      .join('');
+  });
 }
 
 /**
- * Display full welcome banner
+ * Display Qwen-style header:
+ *  Left  → pixel-font "LEOCODER"
+ *  Right → info box like Qwen's ">_ Name (version)" box
  */
-function displayWelcomeBanner(modelName: string, providers: { local?: string; cloud?: string }): void {
-  console.clear();
-  displayNewHeader(modelName);
+function displayHeader(modelName: string, providerName: string): void {
+  console.log();
+
+  const logoRows = renderPixelWord('LEOCODER');
+
+  // Right-side info box content (matches Qwen style)
+  const boxLines = [
+    chalk.green('>_ ') + chalk.white.bold('LeoCoder') + chalk.gray(' (v0.1.0)'),
+    chalk.gray(providerName + ' | ' + modelName + ' (/model to change)'),
+    chalk.green('/help') + chalk.gray(' for commands '),
+    chalk.gray(process.cwd().replace(process.env.HOME || '', '~')),
+  ];
+
+  // Pad box lines to same count as logo rows
+  while (boxLines.length < logoRows.length) boxLines.push('');
+
+  // Box dimensions
+  const boxInnerWidth = 44;
+  const top    = chalk.white('┌' + '─'.repeat(boxInnerWidth) + '┐');
+  const bottom = chalk.white('└' + '─'.repeat(boxInnerWidth) + '┘');
+
+  const paddedBoxLines = boxLines.map(line => {
+    // Strip ANSI to measure visible length
+    const visible = line.replace(/\x1b\[[0-9;]*m/g, '');
+    const pad = Math.max(0, boxInnerWidth - 2 - visible.length);
+    return chalk.white('│') + ' ' + line + ' '.repeat(pad) + ' ' + chalk.white('│');
+  });
+
+  // Print logo rows alongside box
+  logoRows.forEach((logoRow, i) => {
+    if (i === 0) {
+      console.log(logoRow + '    ' + top);
+    } else if (i >= 1 && i <= paddedBoxLines.length) {
+      console.log(logoRow + '    ' + (paddedBoxLines[i - 1] ?? ''));
+    } else {
+      console.log(logoRow);
+    }
+  });
+
+  // Close box if it's taller than logo
+  if (paddedBoxLines.length >= logoRows.length) {
+    console.log(' '.repeat(50) + bottom);
+  } else {
+    console.log('    '.repeat(10) + bottom);
+  }
+
+  console.log();
+  console.log(
+    chalk.gray('Tips: Use ') +
+    chalk.cyan('/bug') +
+    chalk.gray(' to submit issues to the maintainers when something goes off.')
+  );
+  console.log();
 }
 
 /**
- * Format and display assistant message
+ * Display assistant message
  */
 function displayAssistantMessage(content: string, provider: string): void {
   const isLocal = provider === 'ollama' || provider === 'lmstudio';
-  const badge = isLocal 
-    ? chalk.green.bold('[LOCAL]') 
+  const badge = isLocal
+    ? chalk.green.bold('[LOCAL]')
     : chalk.yellow.bold('[CLOUD]');
-  
+
+  console.log();
   console.log(chalk.blue.bold('┌─ ') + chalk.cyan.bold('LEOCODER') + ' ' + badge);
   console.log(chalk.blue('│'));
-  
-  const wrappedLines = wrapText(content, 60);
+
+  const wrappedLines = wrapText(content, 70);
   for (const line of wrappedLines) {
     console.log(chalk.blue('│ ') + chalk.white(line));
   }
@@ -138,41 +242,39 @@ function displayAssistantMessage(content: string, provider: string): void {
 }
 
 /**
- * Wrap text to fit within width
+ * Wrap text
  */
 function wrapText(text: string, maxWidth: number): string[] {
   const lines: string[] = [];
-  const paragraphs = text.split('\n');
-  
-  for (const paragraph of paragraphs) {
+  for (const paragraph of text.split('\n')) {
     if (paragraph.length <= maxWidth) {
       lines.push(paragraph);
     } else {
       const words = paragraph.split(' ');
-      let currentLine = '';
-      
+      let current = '';
       for (const word of words) {
-        if ((currentLine + word).length <= maxWidth) {
-          currentLine += (currentLine ? ' ' : '') + word;
+        if ((current + word).length <= maxWidth) {
+          current += (current ? ' ' : '') + word;
         } else {
-          if (currentLine) lines.push(currentLine);
-          currentLine = word;
+          if (current) lines.push(current);
+          current = word;
         }
       }
-      
-      if (currentLine) lines.push(currentLine);
+      if (current) lines.push(current);
     }
   }
-  
   return lines;
 }
 
-/**
- * Display thinking indicator with animation
- */
-let thinkingSpinner: ora.Ora | null = null;
+// ─── Single thinking spinner (no double animation) ────────────────────────────
+
+let thinkingSpinner: ReturnType<typeof ora> | null = null;
 
 function displayThinking(): void {
+  // Clear any leftover spinner first
+  if (thinkingSpinner) {
+    thinkingSpinner.stop();
+  }
   thinkingSpinner = ora({
     text: chalk.blue('Thinking...'),
     spinner: 'dots',
@@ -187,20 +289,20 @@ function stopThinking(): void {
   }
 }
 
-/**
- * Main chat session
- */
-async function runChatSession(options: any) {
-  const { router, fsTools, shellTools, modelName, providers } = await initializeProviders(options);
+// ─── Chat session ─────────────────────────────────────────────────────────────
 
-  displayWelcomeBanner(modelName, providers);
+async function runChatSession(options: any) {
+  const { router, fsTools, shellTools, modelName, providerName } =
+    await initializeProviders(options);
+
+  console.clear();
+  displayHeader(modelName, providerName);
 
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
   });
 
-  // Handle Ctrl+C
   rl.on('SIGINT', () => {
     stopThinking();
     showFinalStats(router);
@@ -213,84 +315,49 @@ async function runChatSession(options: any) {
 
   const prompt = () => {
     const fileIndicator = currentFile ? chalk.yellow('[' + currentFile + '] ') : '';
-
     console.log();
-    rl.question(chalk.green.bold(fileIndicator + '> '), async (answer) => {
-      await handleInput(answer, conversationHistory);
+    rl.question(chalk.green.bold('> ') + chalk.gray(fileIndicator), async (answer) => {
+      await handleInput(answer);
       prompt();
     });
   };
 
-  const handleInput = async (input: string, history: any[]) => {
+  const handleInput = async (input: string) => {
     const trimmed = input.trim();
+    if (!trimmed) return;
 
-    if (!trimmed) {
-      prompt();
-      return;
-    }
-
-    // Handle commands
     if (trimmed.startsWith('/')) {
-      await handleCommand(trimmed, router, fsTools, shellTools);
-      prompt();
+      await handleCommand(trimmed);
       return;
     }
 
-    // Handle special keywords
     if (['exit', 'quit', 'bye'].includes(trimmed.toLowerCase())) {
       showFinalStats(router);
       rl.close();
       process.exit(0);
     }
 
-    if (trimmed.toLowerCase() === 'stats') {
-      showStats(router);
-      prompt();
-      return;
-    }
-
-    if (trimmed.toLowerCase() === 'help') {
-      showHelp();
-      prompt();
-      return;
-    }
-
-    // Regular message - send to router
     try {
       displayThinking();
 
-      const context = currentFile ? {
-        filePath: currentFile,
-        selectedCode: fsTools.readFile(currentFile, { maxLines: 50 }).then(r => r.success ? r.content : undefined).catch(() => undefined),
-      } : undefined;
-
       const response = await router.generate(trimmed, {
-        context: context as any,
-        systemPrompt: 'You are a helpful coding assistant. Provide concise, practical answers for coding tasks.',
+        systemPrompt: 'You are a helpful coding assistant. Provide concise, practical answers.',
       });
 
       stopThinking();
       displayAssistantMessage(response.text, response.provider);
 
-      history.push({ role: 'user', content: trimmed });
-      history.push({ role: 'assistant', content: response.text });
-
+      conversationHistory.push({ role: 'user', content: trimmed });
+      conversationHistory.push({ role: 'assistant', content: response.text });
     } catch (error: any) {
       stopThinking();
-      console.log(chalk.red.bold('\n┌─ ERROR'));
-      console.log(chalk.red('│'));
-      console.log(chalk.red('│ ' + error.message));
-      console.log(chalk.red('└─' + '─'.repeat(40)));
-      console.log();
+      console.log(chalk.red('\n✗ Error: ' + error.message));
     }
-
-    prompt();
   };
 
-  const handleCommand = async (cmd: string, router: SmartRouter, fsTools: FileSystemTools, shellTools: ShellTools) => {
+  const handleCommand = async (cmd: string) => {
     const parts = cmd.split(' ');
     const command = parts[0].toLowerCase();
-
     console.log();
 
     switch (command) {
@@ -301,7 +368,7 @@ async function runChatSession(options: any) {
           const result = await fsTools.readFile(currentFile);
           if (result.success) {
             console.log(chalk.green('✓ Opened: ') + currentFile);
-            console.log(chalk.gray(result.content!.slice(0, 500) + (result.content!.length > 500 ? '...' : '')));
+            console.log(chalk.gray((result.content ?? '').slice(0, 500)));
           } else {
             console.log(chalk.red('✗ ' + result.error));
           }
@@ -315,7 +382,7 @@ async function runChatSession(options: any) {
           const result = await fsTools.readFile(parts[1]);
           if (result.success) {
             console.log(chalk.cyan('\nFile Contents:'));
-            console.log(chalk.white(result.content!));
+            console.log(chalk.white(result.content ?? ''));
           } else {
             console.log(chalk.red('✗ ' + result.error));
           }
@@ -366,60 +433,47 @@ async function runChatSession(options: any) {
         showHelp();
         break;
 
+      case '/bug':
+        console.log(chalk.yellow('Please report issues at: https://github.com/your-repo/leocoder/issues'));
+        break;
+
       default:
         console.log(chalk.yellow('Unknown command: ' + command + '. Type /help for available commands.'));
     }
-    console.log();
   };
 
   prompt();
 }
 
-/**
- * Single question mode
- */
-async function runSingleQuestion(promptText: string, options: any) {
-  const { router, modelName, providers } = await initializeProviders(options);
+// ─── Single question mode ─────────────────────────────────────────────────────
 
-  displayWelcomeBanner(modelName, providers);
+async function runSingleQuestion(promptText: string, options: any) {
+  const { router, modelName, providerName } = await initializeProviders(options);
+
+  console.clear();
+  displayHeader(modelName, providerName);
 
   try {
     displayThinking();
-
     const response = await router.generate(promptText, {
       systemPrompt: 'You are a helpful coding assistant.',
     });
-
     stopThinking();
     displayAssistantMessage(response.text, response.provider);
-
-    const stats = router.getStats();
-    console.log(chalk.gray('  Tokens: ' + (stats.cloudTokens > 0 ? stats.cloudTokens : stats.localTokens) + ' (' + (stats.cloudTokens > 0 ? 'cloud' : 'local') + ')'));
-    console.log();
   } catch (error: any) {
     stopThinking();
-    console.log(chalk.red.bold('\n┌─ ERROR'));
-    console.log(chalk.red('│'));
-    console.log(chalk.red('│ ' + error.message));
-    console.log(chalk.red('└─' + '─'.repeat(40)));
-    console.log();
+    console.log(chalk.red('\n✗ Error: ' + error.message));
     process.exit(1);
   }
 }
 
-/**
- * Show provider status
- */
+// ─── Status ───────────────────────────────────────────────────────────────────
+
 async function showStatus() {
   console.clear();
-  displayNewHeader('checking...');
-  console.log();
+  displayHeader('checking...', 'status');
   console.log(chalk.cyan.bold('PROVIDER STATUS'));
-  console.log(chalk.cyan('─'.repeat(70)));
-  console.log();
-
-  // Check local providers
-  console.log(chalk.green.bold('Local Providers:'));
+  console.log(chalk.cyan('─'.repeat(60)));
   console.log();
 
   const ollama = new OllamaProvider();
@@ -431,93 +485,73 @@ async function showStatus() {
   }
 
   const lmstudio = new LMStudioProvider();
-  const lmstudioAvailable = await lmstudio.isAvailable();
-  console.log('  ' + (lmstudioAvailable ? chalk.green('✓') : chalk.red('✗')) + ' LM Studio (http://localhost:1234)');
-  if (lmstudioAvailable) {
-    const models = await lmstudio.listModels();
-    console.log(chalk.gray('    Models: ' + (models.join(', ') || 'None')));
-  }
+  const lmAvailable = await lmstudio.isAvailable();
+  console.log('  ' + (lmAvailable ? chalk.green('✓') : chalk.red('✗')) + ' LM Studio (http://localhost:1234)');
 
-  // Check cloud providers
   console.log();
   console.log(chalk.yellow.bold('Cloud Providers:'));
   console.log();
-  
+
   const groqKey = process.env.GROQ_API_KEY;
   if (groqKey) {
     const groq = new GroqProvider(groqKey);
-    const groqAvailable = await groq.isAvailable();
-    console.log('  ' + (groqAvailable ? chalk.green('✓') : chalk.red('✗')) + ' Groq');
+    const ok = await groq.isAvailable();
+    console.log('  ' + (ok ? chalk.green('✓') : chalk.red('✗')) + ' Groq');
   } else {
-    console.log(chalk.yellow('  [!] Groq - API key not set'));
-    console.log(chalk.gray('      Get free key: https://console.groq.com/keys'));
+    console.log(chalk.yellow('  [!] Groq - API key not set (https://console.groq.com/keys)'));
   }
 
   const geminiKey = process.env.GEMINI_API_KEY;
   if (geminiKey) {
     const gemini = new GeminiProvider(geminiKey);
-    const geminiAvailable = await gemini.isAvailable();
-    console.log('  ' + (geminiAvailable ? chalk.green('✓') : chalk.red('✗')) + ' Gemini');
+    const ok = await gemini.isAvailable();
+    console.log('  ' + (ok ? chalk.green('✓') : chalk.red('✗')) + ' Gemini');
   } else {
-    console.log(chalk.yellow('  [!] Gemini - API key not set'));
-    console.log(chalk.gray('      Get free key: https://makersuite.google.com/app/apikey'));
+    console.log(chalk.yellow('  [!] Gemini - API key not set (https://makersuite.google.com/app/apikey)'));
   }
 
   console.log();
-  console.log(chalk.cyan('─'.repeat(70)));
-  console.log();
 }
 
-/**
- * Show configuration
- */
+// ─── Config ───────────────────────────────────────────────────────────────────
+
 function showConfig() {
   console.clear();
-  displayNewHeader('config');
-  console.log();
-
+  displayHeader('config', 'leocoder');
   const configPath = path.join(process.cwd(), 'config.yaml');
-
   if (fs.existsSync(configPath)) {
-    const configContent = fs.readFileSync(configPath, 'utf-8');
-    console.log(chalk.cyan.bold('CONFIGURATION'));
-    console.log(chalk.cyan('─'.repeat(70)));
-    console.log();
-    console.log(chalk.gray(configContent));
+    console.log(chalk.gray(fs.readFileSync(configPath, 'utf-8')));
   } else {
     console.log(chalk.yellow('No config.yaml found in current directory'));
   }
-  console.log();
 }
 
-/**
- * Initialize providers
- */
+// ─── Initialize providers (silent — no console logs during init) ──────────────
+
 async function initializeProviders(options: any) {
   const localProviders: any[] = [];
   const cloudProviders: any[] = [];
   let localModel = 'qwen2.5:1.5b';
+  let providerName = 'Qwen OAuth';
   let activeLocal: string | undefined;
   let activeCloud: string | undefined;
 
-  // Setup local providers
   if (!options.cloudOnly) {
     const ollama = new OllamaProvider();
     localProviders.push(ollama);
-    
-    // Try to detect available model
+
     if (await ollama.isAvailable()) {
       const models = await ollama.listModels();
       if (models.length > 0) {
         localModel = models[0];
-        activeLocal = ollama.name;
       }
+      activeLocal = ollama.name;
+      providerName = 'Ollama';
     }
-    
+
     localProviders.push(new LMStudioProvider());
   }
 
-  // Setup cloud providers
   if (!options.localOnly) {
     const groqKey = process.env.GROQ_API_KEY;
     const geminiKey = process.env.GEMINI_API_KEY;
@@ -525,12 +559,20 @@ async function initializeProviders(options: any) {
     if (groqKey) {
       cloudProviders.push(new GroqProvider(groqKey));
       activeCloud = 'groq';
+      if (!activeLocal) providerName = 'Groq';
     }
     if (geminiKey) {
       cloudProviders.push(new GeminiProvider(geminiKey));
-      if (!activeCloud) activeCloud = 'gemini';
+      if (!activeCloud) {
+        activeCloud = 'gemini';
+        if (!activeLocal) providerName = 'Gemini';
+      }
     }
   }
+
+  // Silence router init logs by temporarily suppressing stdout
+  const originalWrite = process.stdout.write.bind(process.stdout);
+  process.stdout.write = () => true;
 
   const router = new SmartRouter({
     localProviders,
@@ -539,92 +581,85 @@ async function initializeProviders(options: any) {
     cloudModel: 'llama-3.1-8b-instant',
     complexityThreshold: 5,
     preferLocal: true,
-    onRouteChange: () => {
-      // Silent routing for cleaner UI
-    },
+    onRouteChange: () => {},
   });
 
   await router.initialize();
 
+  // Restore stdout
+  process.stdout.write = originalWrite;
+
   const fsTools = new FileSystemTools();
   const shellTools = new ShellTools();
 
-  return { 
-    router, 
-    fsTools, 
+  return {
+    router,
+    fsTools,
     shellTools,
     modelName: localModel,
-    providers: { local: activeLocal, cloud: activeCloud }
+    providerName,
+    providers: { local: activeLocal, cloud: activeCloud },
   };
 }
 
-/**
- * Show help
- */
+// ─── Help / Stats ─────────────────────────────────────────────────────────────
+
 function showHelp() {
   console.log();
   console.log(chalk.cyan.bold('AVAILABLE COMMANDS'));
-  console.log(chalk.cyan('─'.repeat(70)));
+  console.log(chalk.cyan('─'.repeat(60)));
   console.log();
-  console.log(chalk.white('  ') + chalk.cyan('/file <path>') + chalk.gray('      - Open a file for context'));
-  console.log(chalk.white('  ') + chalk.cyan('/read <path>') + chalk.gray('      - Read and display a file'));
-  console.log(chalk.white('  ') + chalk.cyan('/search <pattern>') + chalk.gray(' - Search for pattern in files'));
-  console.log(chalk.white('  ') + chalk.cyan('/run <command>') + chalk.gray('    - Run a shell command'));
-  console.log(chalk.white('  ') + chalk.cyan('/models') + chalk.gray('           - Show active models'));
-  console.log(chalk.white('  ') + chalk.cyan('/stats') + chalk.gray('            - Show token usage stats'));
-  console.log(chalk.white('  ') + chalk.cyan('/help') + chalk.gray('             - Show this help'));
+  const cmds: [string, string][] = [
+    ['/file <path>',      'Open a file for context'],
+    ['/read <path>',      'Read and display a file'],
+    ['/search <pattern>', 'Search for pattern in files'],
+    ['/run <command>',    'Run a shell command'],
+    ['/models',           'Show active models'],
+    ['/stats',            'Show token usage stats'],
+    ['/bug',              'Report an issue'],
+    ['/help',             'Show this help'],
+  ];
+  for (const [cmd, desc] of cmds) {
+    console.log('  ' + chalk.cyan(cmd.padEnd(22)) + chalk.gray(desc));
+  }
   console.log();
-  console.log(chalk.gray('  ') + chalk.green('exit') + chalk.gray(' / ') + chalk.green('quit') + chalk.gray('       - End the session'));
+  console.log('  ' + chalk.green('exit') + chalk.gray(' / ') + chalk.green('quit') + chalk.gray('  — End the session'));
   console.log();
-  console.log(chalk.cyan('─'.repeat(70)));
+  console.log(chalk.cyan('─'.repeat(60)));
   console.log();
 }
 
-/**
- * Show stats
- */
 function showStats(router: SmartRouter) {
   const stats = router.getStats();
-  
   console.log();
   console.log(chalk.cyan.bold('TOKEN USAGE STATISTICS'));
-  console.log(chalk.cyan('─'.repeat(70)));
+  console.log(chalk.cyan('─'.repeat(60)));
   console.log();
-  
   console.log(chalk.green.bold('Local Usage:'));
-  console.log(chalk.white('    Requests:  ' + stats.localRequests));
-  console.log(chalk.white('    Tokens:    ' + stats.localTokens));
+  console.log('  Requests:  ' + stats.localRequests);
+  console.log('  Tokens:    ' + stats.localTokens);
   console.log();
-  
   console.log(chalk.yellow.bold('Cloud Usage:'));
-  console.log(chalk.white('    Requests:  ' + stats.cloudRequests));
-  console.log(chalk.white('    Tokens:    ' + stats.cloudTokens));
+  console.log('  Requests:  ' + stats.cloudRequests);
+  console.log('  Tokens:    ' + stats.cloudTokens);
   console.log();
-  
-  console.log(chalk.green.bold('Savings:'));
-  console.log(chalk.white('    Saved:     ~' + stats.tokensSaved + ' tokens (by using local)'));
+  console.log(chalk.green('Saved: ~' + stats.tokensSaved + ' tokens (via local)'));
   console.log();
-  console.log(chalk.cyan('─'.repeat(70)));
+  console.log(chalk.cyan('─'.repeat(60)));
   console.log();
 }
 
-/**
- * Show final stats on exit
- */
 function showFinalStats(router: SmartRouter) {
   const stats = router.getStats();
-  
   console.log();
-  console.log(chalk.cyan('╔' + '═'.repeat(68) + '╗'));
-  console.log(chalk.cyan('║') + chalk.bold.white('                         SESSION SUMMARY                          ') + chalk.cyan('║'));
-  console.log(chalk.cyan('╚' + '═'.repeat(68) + '╝'));
+  console.log(chalk.cyan('╔' + '═'.repeat(55) + '╗'));
+  console.log(chalk.cyan('║') + chalk.bold.white('                    SESSION SUMMARY                    ') + chalk.cyan('║'));
+  console.log(chalk.cyan('╚' + '═'.repeat(55) + '╝'));
   console.log();
-  console.log(chalk.white('  Total requests:   ' + stats.totalRequests));
-  console.log();
-  console.log(chalk.green('  Local requests:   ' + stats.localRequests + ' (' + stats.localTokens + ' tokens)'));
-  console.log(chalk.yellow('  Cloud requests:   ' + stats.cloudRequests + ' (' + stats.cloudTokens + ' tokens)'));
-  console.log();
-  console.log(chalk.green('  Estimated savings: ~' + stats.tokensSaved + ' tokens'));
+  console.log('  Total:   ' + stats.totalRequests + ' requests');
+  console.log(chalk.green('  Local:   ' + stats.localRequests + ' requests (' + stats.localTokens + ' tokens)'));
+  console.log(chalk.yellow('  Cloud:   ' + stats.cloudRequests + ' requests (' + stats.cloudTokens + ' tokens)'));
+  console.log(chalk.green('  Saved:   ~' + stats.tokensSaved + ' tokens'));
   console.log();
   console.log(chalk.cyan('  Happy coding with LeoCoder!'));
   console.log();
