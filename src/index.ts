@@ -13,6 +13,7 @@ import { SmartRouter } from './utils/router';
 import { FileSystemTools } from './tools/filesystem';
 import { ShellTools } from './tools/shell';
 import { ensureLeoCoderContext } from './context/initContext';
+import { buildLeoContextPrompt } from './context/loadContext';
 
 dotenvConfig();
 
@@ -333,18 +334,28 @@ Be concise and practical. If asked to create or edit a file, always output the f
       process.exit(0);
     }
 
-    await ensureLeoCoderContext(workDir, input);
+await ensureLeoCoderContext(workDir, input);
 
-    // Build prompt — attach open file context if set
-    let fullPrompt = input;
-    if (currentFile && fs.existsSync(currentFile)) {
-      const fileContent = fs.readFileSync(currentFile, 'utf-8');
-      const relPath = path.relative(workDir, currentFile);
-      fullPrompt =
-        `Context — currently open file (${relPath}):\n` +
-        '```\n' + fileContent + '\n```\n\n' +
-        'User request: ' + input;
-    }
+// Load LeoCoder project context
+const leoContext = buildLeoContextPrompt(workDir);
+
+// Build prompt — attach open file context if set
+let fullPrompt = input;
+
+if (currentFile && fs.existsSync(currentFile)) {
+  const fileContent = fs.readFileSync(currentFile, 'utf-8');
+  const relPath = path.relative(workDir, currentFile);
+
+  fullPrompt =
+    `${leoContext}\n\n` +
+    `=== OPEN FILE CONTEXT (${relPath}) ===\n` +
+    '```\n' + fileContent + '\n```\n\n' +
+    `=== USER REQUEST ===\n${input}`;
+} else {
+  fullPrompt =
+    `${leoContext}\n\n` +
+    `=== USER REQUEST ===\n${input}`;
+}
 
     try {
       displayThinking();
@@ -520,8 +531,14 @@ async function runSingleQuestion(promptText: string, options: any) {
 
   try {
     await ensureLeoCoderContext(process.cwd(), promptText);
+
+    const leoContext = buildLeoContextPrompt(process.cwd());
+    const fullPrompt =
+      `${leoContext}\n\n` +
+      `=== USER REQUEST ===\n${promptText}`;
+
     displayThinking();
-    const response = await router.generate(promptText, {
+    const response = await router.generate(fullPrompt, {
       systemPrompt: 'You are a helpful coding assistant. When writing files, put them in fenced code blocks with the filename on the opening fence line.',
     });
     stopThinking();
