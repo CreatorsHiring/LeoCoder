@@ -1,0 +1,40 @@
+# Source files (users get compiled dist)
+src/
+
+# Development files
+.git/
+.gitignore
+.vscode/
+.idea/
+*.log
+npm-debug.log*
+
+# Build artifacts (regenerated on publish)
+dist/*.map
+dist/**/*.map
+
+# Documentation (keep README, remove others)
+USAGE.md
+DISTRIBUTION.md
+QUICKSTART.md
+
+# Scripts
+install.bat
+install.sh
+
+# Testing
+*.test.ts
+*.spec.ts
+tests/
+coverage/
+
+# Linting
+.eslintcache
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local

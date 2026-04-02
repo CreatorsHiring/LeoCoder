@@ -49,6 +49,13 @@ program
   .description('Show current configuration')
   .action(() => { showConfig(); });
 
+// Default command - start chat when no command is provided
+program
+  .command('*', { isDefault: true, hidden: true })
+  .action(async () => {
+    await runChatSession({});
+  });
+
 program.parse();
 
 // ─── Pixel font ───────────────────────────────────────────────────────────────

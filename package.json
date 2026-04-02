@@ -1,16 +1,23 @@
 {
   "name": "leocoder",
   "version": "0.1.0",
-  "description": "LeoCoder - Smart LLM router for vibe coding",
+  "description": "LeoCoder - Smart LLM router for vibe coding. Local-first AI coding assistant with cloud fallback.",
   "main": "dist/index.js",
   "bin": {
     "leocoder": "./dist/index.js"
   },
+  "files": [
+    "dist",
+    "config.yaml",
+    ".env.example",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js chat",
     "dev": "ts-node src/index.ts",
-    "lint": "eslint src --ext .ts"
+    "lint": "eslint src --ext .ts",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "ai",
@@ -18,10 +25,30 @@
     "llm",
     "vibe-coding",
     "ollama",
-    "router"
+    "router",
+    "cli",
+    "developer-tool",
+    "code-generation",
+    "local-ai"
   ],
-  "author": "",
+  "author": "akashbojja3@gmail.com",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/CreatorsHiring/LeoCoder.git"
+  },
+  "homepage": "https://github.com/CreatorsHiring/LeoCoder#readme",
+  "bugs": {
+    "url": "https://github.com/CreatorsHiring/LeoCoder/issues"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "os": [
+    "win32",
+    "darwin",
+    "linux"
+  ],
   "dependencies": {
     "axios": "^1.6.0",
     "chalk": "^4.1.2",

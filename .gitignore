@@ -4,3 +4,9 @@ dist/
 *.log
 .DS_Store
 .leocoder/
+install.bat
+install.sh
+DISTRIBUTION_SUMMARY.md
+DISTRIBUTION.md
+PUBLISH_CHECKLIST.md
+USAGE.md
