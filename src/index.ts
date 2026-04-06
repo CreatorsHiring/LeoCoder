@@ -176,9 +176,8 @@ interface ParsedFile {
  *   ```js   index.js
  *   // filename: src/foo.ts   (fallback comment hint)
  */
-function parseCodeBlocks(response: string): ParsedFile[] {
+function parseCodeBlocks(response: string, fallbackFilename?: string): ParsedFile[] {
   const files: ParsedFile[] = [];
-  // Match ``` optionally followed by language and/or filename
   const fenceRe = /```(\w*)\s*([\w./\\-]+\.\w+)?\n([\s\S]*?)```/g;
   let match: RegExpExecArray | null;
 
@@ -187,10 +186,15 @@ function parseCodeBlocks(response: string): ParsedFile[] {
     let filename = match[2] || '';
     const content = match[3];
 
-    // Fallback: look for a // filename: hint inside the block
+    // Fallback: look for filename hint inside the block
     if (!filename) {
       const hintMatch = content.match(/^(?:\/\/|#|<!--)\s*filename:\s*([\w./\\-]+\.\w+)/m);
       if (hintMatch) filename = hintMatch[1];
+    }
+
+    // Smart fallback: if only one block and user likely asked for a file
+    if (!filename && fallbackFilename) {
+      filename = fallbackFilename;
     }
 
     if (filename && content.trim()) {
@@ -200,7 +204,6 @@ function parseCodeBlocks(response: string): ParsedFile[] {
 
   return files;
 }
-
 /**
  * Write extracted files to disk and report what was written.
  * Returns true if any files were written.
@@ -299,13 +302,34 @@ async function runChatSession(options: any) {
   let currentFile: string | undefined;
 
   // System prompt that instructs the model to include filenames in fences
-  const SYSTEM_PROMPT = `You are LeoCoder, an expert coding assistant.
-When you write or modify code files, ALWAYS put them in fenced code blocks with the filename on the opening fence line, like:
-\`\`\`typescript src/utils/helper.ts
-// code here
+const SYSTEM_PROMPT = `You are LeoCoder, an expert coding assistant, Created by Akash.
+
+IMPORTANT FILE OUTPUT RULES:
+If the user asks you to create or modify a file, you MUST return the FULL file content inside a fenced code block with the filename on the SAME opening fence line.
+
+Correct format example:
+\`\`\`html library.html
+<!DOCTYPE html>
+<html>
+...
+</html>
 \`\`\`
-This allows the user's editor to automatically write the files to disk.
-Be concise and practical. If asked to create or edit a file, always output the full file content in a fence.`;
+
+Another correct example:
+\`\`\`typescript src/utils/helper.ts
+export function add(a: number, b: number) {
+  return a + b;
+}
+\`\`\`
+
+STRICT RULES:
+- ALWAYS include the filename on the opening fence line
+- ALWAYS include the full file content
+- NEVER omit the filename
+- NEVER explain the file without also outputting the file in the correct format
+- If the user asks to create a website or file, output the file directly in the correct fenced format
+
+This is required because LeoCoder will automatically write the file to disk.`;
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
@@ -372,8 +396,11 @@ if (currentFile && fs.existsSync(currentFile)) {
       stopThinking();
       displayAssistantMessage(response.text, response.provider);
 
+      const guessedFilenameMatch = input.match(/\b([\w.-]+\.(html|css|js|ts|tsx|jsx|json|md|py|java|cpp|c|txt))\b/i);
+      const fallbackFilename = guessedFilenameMatch ? guessedFilenameMatch[1] : undefined;
+
       // ── Aider-style: auto-write any code blocks that have filenames ──
-      const parsedFiles = parseCodeBlocks(response.text);
+      const parsedFiles = parseCodeBlocks(response.text, fallbackFilename);
       if (parsedFiles.length > 0) {
         await applyCodeBlocks(parsedFiles, workDir, fsTools);
       }
@@ -546,11 +573,32 @@ async function runSingleQuestion(promptText: string, options: any) {
 
     displayThinking();
     const response = await router.generate(fullPrompt, {
-      systemPrompt: 'You are a helpful coding assistant. When writing files, put them in fenced code blocks with the filename on the opening fence line.',
+      systemPrompt: `You are LeoCoder, an expert coding assistant.
+
+If the user asks you to create or modify a file, you MUST return the FULL file content inside a fenced code block with the filename on the SAME opening fence line.
+
+Correct example:
+\`\`\`html library.html
+<!DOCTYPE html>
+<html>
+...
+</html>
+\`\`\`
+
+STRICT RULES:
+- ALWAYS include the filename on the opening fence line
+- ALWAYS include the full file content
+- NEVER omit the filename
+- NEVER explain the file without also outputting the file in the correct format
+
+LeoCoder will automatically write the file to disk if you follow this format.`,
     });
     stopThinking();
     displayAssistantMessage(response.text, response.provider);
-    const files = parseCodeBlocks(response.text);
+    const guessedFilenameMatch = promptText.match(/\b([\w.-]+\.(html|css|js|ts|tsx|jsx|json|md|py|java|cpp|c|txt))\b/i);
+    const fallbackFilename = guessedFilenameMatch ? guessedFilenameMatch[1] : undefined;
+
+    const files = parseCodeBlocks(response.text, fallbackFilename);
     if (files.length > 0) await applyCodeBlocks(files, process.cwd(), fsTools);
   } catch (error: any) {
     stopThinking();
