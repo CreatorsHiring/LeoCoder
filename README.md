@@ -1,4 +1,4 @@
-# LeoCoder 🚀
+# LeoCoder
 
 **Smart LLM router for vibe coding - local first, cloud fallback**
 
@@ -20,15 +20,15 @@ Then just type `leocoder` in any project!
 
 ## Features
 
-- 🏠 **Local-First**: Automatically uses local models (Ollama, LM Studio) for simple tasks
-- ☁️ **Cloud Fallback**: Routes complex tasks to cloud providers (Groq, Gemini)
-- 🧠 **Smart Routing**: AI-powered task classification based on complexity
-- 💰 **Token Savings**: Track tokens saved by using local models
-- 📝 **Auto File Writing**: LLM responses with filenames automatically write to disk
-- 🛠️ **File Operations**: Read, write, edit files directly from chat
-- 💻 **Shell Commands**: Run terminal commands safely
-- 🔍 **Code Search**: Grep-like search across your codebase
-- 📁 **Project Context**: Automatic project structure analysis and context injection
+-  **Local-First**: Automatically uses local models (Ollama, LM Studio) for simple tasks
+-  **Cloud Fallback**: Routes complex tasks to cloud providers (Groq, Gemini)
+-  **Smart Routing**: AI-powered task classification based on complexity
+-  **Token Savings**: Track tokens saved by using local models
+-  **Auto File Writing**: LLM responses with filenames automatically write to disk
+-  **File Operations**: Read, write, edit files directly from chat
+-  **Shell Commands**: Run terminal commands safely
+-  **Code Search**: Grep-like search across your codebase
+-  **Project Context**: Automatic project structure analysis and context injection
 
 ## Quick Start
 
@@ -167,9 +167,9 @@ LeoCoder analyzes each request and routes intelligently:
 
 | Complexity | Route | Example | Speed | Cost |
 |------------|-------|---------|-------|------|
-| 1-3 | 🏠 Local | "add a function", "explain this" | Fast | Free |
-| 4-6 | 🏠 Local | "debug this error", "add tests" | Medium | Free |
-| 7-10 | ☁️ Cloud | "design auth system", "security audit" | Fast | API credits |
+| 1-3 |  Local | "add a function", "explain this" | Fast | Free |
+| 4-6 |  Local | "debug this error", "add tests" | Medium | Free |
+| 7-10 |  Cloud | "design auth system", "security audit" | Fast | API credits |
 
 ### Routing Examples
 
