@@ -18,7 +18,7 @@ import { buildLeoContextPrompt } from './context/loadContext';
 dotenvConfig();
 
 const program = new Command();
-
+let MODE: 'auto' | 'local' | 'cloud' = 'auto';
 program
   .name('leocoder')
   .description('LeoCoder - Smart LLM router for vibe coding')
@@ -241,7 +241,9 @@ async function applyCodeBlocks(
 
 function displayAssistantMessage(content: string, provider: string): void {
   const isLocal = provider === 'ollama' || provider === 'lmstudio';
-  const badge = isLocal ? chalk.green.bold('[LOCAL]') : chalk.yellow.bold('[CLOUD]');
+  const badge = isLocal
+  ? chalk.green.bold(`[LOCAL | ${provider}]`)
+  : chalk.yellow.bold(`[CLOUD | ${provider}]`);
 
   console.log();
   console.log(chalk.blue.bold('┌─ ') + chalk.cyan.bold('LEOCODER') + ' ' + badge);
@@ -392,7 +394,7 @@ if (currentFile && fs.existsSync(currentFile)) {
       displayThinking();
 
       const response = await router.generate(fullPrompt, { systemPrompt: SYSTEM_PROMPT });
-
+      
       stopThinking();
       displayAssistantMessage(response.text, response.provider);
 
@@ -460,6 +462,15 @@ if (currentFile && fs.existsSync(currentFile)) {
           }
         } else {
           console.log(chalk.white('Current directory: ') + workDir);
+        }
+        break;
+
+      case '/mode':
+        if (parts[1] === 'local' || parts[1] === 'cloud' || parts[1] === 'auto') {
+          MODE = parts[1];
+          console.log(chalk.green(`✓ Mode set to ${MODE.toUpperCase()}`));
+        } else {
+          console.log(chalk.yellow('Usage: /mode local | cloud | auto'));
         }
         break;
 
@@ -573,7 +584,7 @@ async function runSingleQuestion(promptText: string, options: any) {
 
     displayThinking();
     const response = await router.generate(fullPrompt, {
-      systemPrompt: `You are LeoCoder, an expert coding assistant.
+    systemPrompt: `You are LeoCoder, an expert coding assistant.
 
 If the user asks you to create or modify a file, you MUST return the FULL file content inside a fenced code block with the filename on the SAME opening fence line.
 
@@ -592,7 +603,7 @@ STRICT RULES:
 - NEVER explain the file without also outputting the file in the correct format
 
 LeoCoder will automatically write the file to disk if you follow this format.`,
-    });
+});
     stopThinking();
     displayAssistantMessage(response.text, response.provider);
     const guessedFilenameMatch = promptText.match(/\b([\w.-]+\.(html|css|js|ts|tsx|jsx|json|md|py|java|cpp|c|txt))\b/i);
@@ -701,12 +712,37 @@ async function initializeProviders(options: any) {
   const originalWrite = process.stdout.write.bind(process.stdout);
   process.stdout.write = () => true;
 
-  const router = new SmartRouter({
-    localProviders, cloudProviders, localModel,
-    cloudModel: 'llama-3.1-8b-instant',
-    complexityThreshold: 5, preferLocal: true, onRouteChange: () => {},
-  });
+// 🔥 HARD CONTROL OF PROVIDERS
+if (options.localOnly) {
+  console.log(chalk.yellow('⚡ LOCAL ONLY MODE'));
+  cloudProviders.length = 0;
+}
+
+if (options.cloudOnly) {
+  console.log(chalk.yellow('⚡ CLOUD ONLY MODE'));
+  localProviders.length = 0;
+}
+
+const router = new SmartRouter({
+  localProviders,
+  cloudProviders,
+  localModel: options.model || localModel,
+  cloudModel: options.model || 'llama-3.1-8b-instant',
+
+  // 🔥 IMPORTANT FIXES
+  complexityThreshold: 8,
+  preferLocal: options.localOnly ? true : !options.cloudOnly,
+
+  onRouteChange: (route) => {
+    console.log(chalk.gray(`[Router] → ${route}`));
+  },
+});
+
   await router.initialize();
+
+  console.log(chalk.gray(`Local Providers: ${localProviders.length}`));
+  console.log(chalk.gray(`Cloud Providers: ${cloudProviders.length}`));
+  console.log(chalk.gray(`Mode: ${options.localOnly ? 'LOCAL ONLY' : options.cloudOnly ? 'CLOUD ONLY' : 'AUTO'}`));
 
   process.stdout.write = originalWrite;
 
