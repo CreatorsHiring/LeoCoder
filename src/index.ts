@@ -160,7 +160,104 @@ function displayHeader(modelName: string, providerName: string): void {
   console.log();
 }
 
-// ─── Aider-style: parse fenced code blocks and write files ───────────────────
+// ─── Agentic tool loop ─────────────────────────────────────────────────────────
+
+interface ToolRequest {
+  type: 'read' | 'edit' | 'run' | 'search';
+  params: Record<string, string>;
+}
+
+function parseToolRequests(text: string): ToolRequest[] {
+  const tools: ToolRequest[] = [];
+
+  // [READ: path]
+  const readRe = /\[READ:\s*([^\]]+)\]/gi;
+  let m: RegExpExecArray | null;
+  while ((m = readRe.exec(text)) !== null) {
+    tools.push({ type: 'read', params: { path: m[1].trim() } });
+  }
+
+  // [RUN: command]
+  const runRe = /\[RUN:\s*([^\]]+)\]/gi;
+  while ((m = runRe.exec(text)) !== null) {
+    tools.push({ type: 'run', params: { command: m[1].trim() } });
+  }
+
+  // [SEARCH: pattern]
+  const searchRe = /\[SEARCH:\s*([^\]]+)\]/gi;
+  while ((m = searchRe.exec(text)) !== null) {
+    tools.push({ type: 'search', params: { pattern: m[1].trim() } });
+  }
+
+  // [EDIT: path] with <<<<<<< ORIGINAL / ======= / >>>>>>> UPDATED block
+  const editRe = /\[EDIT:\s*([^\]]+)\]\s*<<<<<<<\s*ORIGINAL\s*([\s\S]*?)=======\s*([\s\S]*?)>>>>>>>\s*UPDATED/g;
+  while ((m = editRe.exec(text)) !== null) {
+    tools.push({
+      type: 'edit',
+      params: { path: m[1].trim(), oldString: m[2].trim(), newString: m[3].trim() },
+    });
+  }
+
+  return tools;
+}
+
+async function executeToolRequests(
+  tools: ToolRequest[],
+  fsTools: FileSystemTools,
+  shellTools: ShellTools,
+  workDir: string
+): Promise<string> {
+  const results: string[] = [];
+
+  for (const tool of tools) {
+    switch (tool.type) {
+      case 'read': {
+        console.log(chalk.gray('  [TOOL] Read: ' + tool.params.path));
+        const result = await fsTools.readFile(tool.params.path);
+        if (result.success) {
+          results.push('[RESULT: read ' + tool.params.path + ']\n' + (result.content || '(empty)'));
+        } else {
+          results.push('[RESULT: read ' + tool.params.path + ']\nERROR: ' + (result.error || 'unknown'));
+        }
+        break;
+      }
+      case 'run': {
+        console.log(chalk.gray('  [TOOL] Run: ' + tool.params.command));
+        const result = await shellTools.execute(tool.params.command, { cwd: workDir });
+        results.push(
+          '[RESULT: run ' + tool.params.command + ']\n' +
+          'exit code: ' + (result.exitCode ?? -1) + '\n' +
+          'stdout:\n' + result.stdout + '\n' +
+          'stderr:\n' + result.stderr
+        );
+        break;
+      }
+      case 'search': {
+        console.log(chalk.gray('  [TOOL] Search: ' + tool.params.pattern));
+        const matches = await fsTools.searchInFiles(tool.params.pattern, { maxResults: 20 });
+        if (matches.length > 0) {
+          const lines = matches.map(r => r.file + ':' + r.line + ': ' + r.content).join('\n');
+          results.push('[RESULT: search ' + tool.params.pattern + ']\n' + lines);
+        } else {
+          results.push('[RESULT: search ' + tool.params.pattern + ']\nNo matches found.');
+        }
+        break;
+      }
+      case 'edit': {
+        console.log(chalk.gray('  [TOOL] Edit: ' + tool.params.path));
+        const result = await fsTools.editFile(tool.params.path, tool.params.oldString, tool.params.newString);
+        if (result.success) {
+          results.push('[RESULT: edit ' + tool.params.path + ']\nEdit applied successfully.');
+        } else {
+          results.push('[RESULT: edit ' + tool.params.path + ']\nERROR: ' + (result.error || 'unknown'));
+        }
+        break;
+      }
+    }
+  }
+
+  return results.join('\n\n');
+}
 
 interface ParsedFile {
   filename: string;
@@ -290,6 +387,36 @@ function stopThinking(): void {
   if (thinkingSpinner) { thinkingSpinner.stop(); thinkingSpinner = null; }
 }
 
+// ─── Session state persistence ─────────────────────────────────────────────────
+
+async function updateSessionAfterWrite(workDir: string, input: string, writtenFiles: string[]): Promise<void> {
+  const leoDir = path.join(workDir, '.leocoder');
+  if (!fs.existsSync(leoDir)) return;
+
+  const sessionPath = path.join(leoDir, 'session.json');
+  try {
+    const session = JSON.parse(fs.readFileSync(sessionPath, 'utf-8'));
+    const prompts = session.recent_user_prompts || [];
+    prompts.push(input);
+    session.recent_user_prompts = prompts.slice(-10);
+    fs.writeFileSync(sessionPath, JSON.stringify(session, null, 2), 'utf-8');
+  } catch { /* skip */ }
+
+  const editsPath = path.join(leoDir, 'recent_edits.json');
+  try {
+    const edits = JSON.parse(fs.readFileSync(editsPath, 'utf-8'));
+    const files = edits.recent_files || [];
+    const changes = edits.recent_changes || [];
+    for (const f of writtenFiles) {
+      if (!files.includes(f)) files.push(f);
+      changes.push('wrote ' + f);
+    }
+    edits.recent_files = files.slice(-20);
+    edits.recent_changes = changes.slice(-20);
+    fs.writeFileSync(editsPath, JSON.stringify(edits, null, 2), 'utf-8');
+  } catch { /* skip */ }
+}
+
 // ─── Chat session ─────────────────────────────────────────────────────────────
 
 async function runChatSession(options: any) {
@@ -304,34 +431,46 @@ async function runChatSession(options: any) {
   let currentFile: string | undefined;
 
   // System prompt that instructs the model to include filenames in fences
-const SYSTEM_PROMPT = `You are LeoCoder, an expert coding assistant, Created by Akash.
+const SYSTEM_PROMPT = `You are LeoCoder, an expert coding assistant.
 
-IMPORTANT FILE OUTPUT RULES:
-If the user asks you to create or modify a file, you MUST return the FULL file content inside a fenced code block with the filename on the SAME opening fence line.
+You have access to tools. Use them to complete the user's task step by step.
 
-Correct format example:
-\`\`\`html library.html
+## AVAILABLE TOOLS
+
+### WRITE files (create new or overwrite) — STRICT RULES
+Use fenced code blocks with the filename on the SAME opening fence line:
+\`\`\`html path/to/file.html
 <!DOCTYPE html>
-<html>
 ...
-</html>
 \`\`\`
 
-Another correct example:
-\`\`\`typescript src/utils/helper.ts
-export function add(a: number, b: number) {
-  return a + b;
-}
-\`\`\`
+FAILING to include the filename means the file will NOT be written.
+You MUST always include the filename on the fence line.
 
-STRICT RULES:
-- ALWAYS include the filename on the opening fence line
-- ALWAYS include the full file content
-- NEVER omit the filename
-- NEVER explain the file without also outputting the file in the correct format
-- If the user asks to create a website or file, output the file directly in the correct fenced format
+### READ files
+[READ: path/to/file]
 
-This is required because LeoCoder will automatically write the file to disk.`;
+### EDIT existing files (surgical find-and-replace)
+Use this to make precise edits instead of rewriting entire files:
+[EDIT: path/to/file]
+<<<<<<< ORIGINAL
+exact text to be replaced
+=======
+new replacement text
+>>>>>>> UPDATED
+
+### RUN commands
+[RUN: shell command]
+
+### SEARCH code
+[SEARCH: pattern]
+
+## HOW TO WORK
+1. Break the task into steps. Use tools to accomplish each step.
+2. After each tool use, results will be shown to you.
+3. Use the results to decide what to do next.
+4. When the task is complete, output a friendly summary.
+5. Always create files in the correct folder structure relative to project root.`;
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
@@ -343,11 +482,14 @@ This is required because LeoCoder will automatically write the file to disk.`;
   });
 
   const conversationHistory: Array<{ role: string; content: string }> = [];
+  // Route override: 'auto' = classifier decides, 'local' / 'cloud' = forced
+  let routeOverride: 'auto' | 'local' | 'cloud' = 'auto';
 
   const prompt = () => {
     const fileIndicator = currentFile ? chalk.yellow(' [' + path.basename(currentFile) + ']') : '';
+    const modeIndicator = routeOverride !== 'auto' ? chalk.gray(' [') + (routeOverride === 'local' ? chalk.green('LOCAL') : chalk.yellow('CLOUD')) + chalk.gray(']') : '';
     console.log();
-    rl.question(chalk.green.bold('>') + fileIndicator + chalk.green.bold(' '), async (answer) => {
+    rl.question(chalk.green.bold('>') + fileIndicator + modeIndicator + chalk.green.bold(' '), async (answer) => {
       await handleInput(answer.trim());
       prompt();
     });
@@ -391,24 +533,82 @@ if (currentFile && fs.existsSync(currentFile)) {
 }
 
     try {
-      displayThinking();
+      // Inject conversation history so the LLM remembers previous turns
+      let conversationContext = fullPrompt;
+      if (conversationHistory.length > 0) {
+        const history = conversationHistory.slice(-6);
+        const historyStr = history.map(msg =>
+          msg.role === 'user' ? 'User: ' + msg.content : 'Assistant: ' + msg.content
+        ).join('\n\n');
+        conversationContext = '=== CONVERSATION HISTORY ===\n' + historyStr + '\n\n' + fullPrompt;
+      }
 
-      const response = await router.generate(fullPrompt, { systemPrompt: SYSTEM_PROMPT });
-      
-      stopThinking();
-      displayAssistantMessage(response.text, response.provider);
+      // Agentic tool loop — keep iterating while the LLM requests tools
+      let turnCount = 0;
+      const MAX_TOOL_TURNS = 15;
+      let agentPrompt = conversationContext;
+      let finalResponseText = '';
+      let finalProvider = '';
+      const allWrittenFiles: string[] = [];
+      let lastAgentResponse: { text: string; provider: string } | null = null;
 
-      const guessedFilenameMatch = input.match(/\b([\w.-]+\.(html|css|js|ts|tsx|jsx|json|md|py|java|cpp|c|txt))\b/i);
-      const fallbackFilename = guessedFilenameMatch ? guessedFilenameMatch[1] : undefined;
+      while (turnCount < MAX_TOOL_TURNS) {
+        turnCount++;
+        displayThinking();
 
-      // ── Aider-style: auto-write any code blocks that have filenames ──
-      const parsedFiles = parseCodeBlocks(response.text, fallbackFilename);
-      if (parsedFiles.length > 0) {
-        await applyCodeBlocks(parsedFiles, workDir, fsTools);
+        const agentResponse = await router.generate(agentPrompt, {
+          systemPrompt: SYSTEM_PROMPT,
+          forceProvider: routeOverride !== 'auto' ? routeOverride : undefined,
+        });
+
+        stopThinking();
+        const responseText = agentResponse.text;
+        lastAgentResponse = { text: responseText, provider: agentResponse.provider };
+
+        // Parse tool requests and code blocks from this response
+        const tools = parseToolRequests(responseText);
+        const guessedFilenameMatch = input.match(/\b([\w.-]+\.(html|css|js|ts|tsx|jsx|json|md|py|java|cpp|c|txt))\b/i);
+        const fallbackFilename = guessedFilenameMatch ? guessedFilenameMatch[1] : undefined;
+        const files = parseCodeBlocks(responseText, fallbackFilename);
+        const written = files.map(f => f.filename);
+
+        // Write any code blocks
+        if (files.length > 0) {
+          await applyCodeBlocks(files, workDir, fsTools);
+          allWrittenFiles.push(...written);
+          await updateSessionAfterWrite(workDir, input, written);
+        }
+
+        // Execute tool requests and collect results
+        if (tools.length > 0) {
+          const toolResults = await executeToolRequests(tools, fsTools, shellTools, workDir);
+          agentPrompt = responseText + '\n\n=== TOOL RESULTS ===\n' + toolResults;
+          if (files.length > 0) {
+            agentPrompt += '\n\n[INFO] Files written: ' + written.join(', ');
+          }
+        } else {
+          // No more tool requests — this is the final answer
+          finalResponseText = responseText;
+          finalProvider = agentResponse.provider;
+          break;
+        }
+      }
+
+      if (turnCount >= MAX_TOOL_TURNS && lastAgentResponse) {
+        console.log(chalk.yellow('\n⚠ Reached max tool turns (' + MAX_TOOL_TURNS + '). Some tasks may be incomplete.'));
+        finalResponseText = lastAgentResponse.text;
+        finalProvider = lastAgentResponse.provider;
+      }
+
+      if (finalResponseText) {
+        displayAssistantMessage(finalResponseText, finalProvider);
+      }
+      if (allWrittenFiles.length > 0) {
+        await updateSessionAfterWrite(workDir, input, allWrittenFiles);
       }
 
       conversationHistory.push({ role: 'user', content: input });
-      conversationHistory.push({ role: 'assistant', content: response.text });
+      conversationHistory.push({ role: 'assistant', content: finalResponseText });
 
     } catch (error: any) {
       stopThinking();
@@ -541,37 +741,96 @@ if (currentFile && fs.existsSync(currentFile)) {
 
       case '/models':
         const activeProviders = router.getActiveProviders();
-        const availableModels = await router.getLocalModels();
-        const curModel = router.getCurrentLocalModel() || 'unknown';
+        const localModels = await router.getLocalModels();
+        const cloudModels = await router.getCloudModels();
+        const curLocal = router.getCurrentLocalModel() || 'unknown';
+        const curCloud = router.getCurrentCloudModel() || 'unknown';
+
         console.log(chalk.cyan('\nActive Providers:'));
         console.log('  Local: ' + (activeProviders.local || chalk.gray('None')));
         console.log('  Cloud: ' + (activeProviders.cloud || chalk.gray('None')));
-        if (availableModels.length > 0) {
-          console.log(chalk.cyan('\nAvailable Local Models:'));
-          for (let i = 0; i < availableModels.length; i++) {
-            const m = availableModels[i];
-            const isCurrent = m === curModel;
-            const marker = isCurrent ? chalk.green(' ▸') : '  ';
-            const suffix = isCurrent ? chalk.gray(' (active)') : '';
-            console.log(marker + chalk.cyan((i + 1).toString().padStart(2)) + '. ' + m + suffix);
+        const modeText = routeOverride === 'auto' ? 'smart routing' : routeOverride === 'local' ? 'forced local' : 'forced cloud';
+        console.log(chalk.gray('  Route:  ') + (routeOverride !== 'auto' ? chalk.yellow(modeText) : chalk.green(modeText)));
+
+        if (localModels.length > 0) {
+          console.log(chalk.cyan('\nLocal Models:'));
+          for (let i = 0; i < localModels.length; i++) {
+            const m = localModels[i];
+            const marker = m === curLocal ? chalk.green(' ▸') : '  ';
+            const suffix = m === curLocal ? chalk.gray(' (active)') : '';
+            console.log(marker + chalk.cyan('L' + (i + 1).toString().padStart(2)) + '. ' + m + suffix);
           }
-          const modelChoice = await new Promise<string>((resolve) => {
-            rl.question(chalk.white('\nType model name or number to switch, or press Enter to cancel: '), (ans) => resolve(ans));
-          });
-          let newModel: string | undefined;
-          const num = parseInt(modelChoice);
-          if (!isNaN(num) && num >= 1 && num <= availableModels.length) {
-            newModel = availableModels[num - 1];
-          } else if (availableModels.includes(modelChoice)) {
-            newModel = modelChoice;
+        }
+
+        if (cloudModels.length > 0) {
+          console.log(chalk.cyan('\nCloud Models:'));
+          for (let i = 0; i < cloudModels.length; i++) {
+            const m = cloudModels[i];
+            const marker = m === curCloud ? chalk.green(' ▸') : '  ';
+            const suffix = m === curCloud ? chalk.gray(' (active)') : '';
+            console.log(marker + chalk.cyan('C' + (i + 1).toString().padStart(2)) + '. ' + m + suffix);
           }
-          if (newModel) {
+        }
+
+        if (localModels.length === 0 && cloudModels.length === 0) {
+          console.log(chalk.yellow('\nNo models found. Start Ollama/LM Studio or set cloud API keys in .env.'));
+          break;
+        }
+
+        const modelChoice = await new Promise<string>((resolve) => {
+          rl.question(chalk.white('\nType L#/C# or model name to switch, or press Enter to cancel: '), (ans) => resolve(ans));
+        });
+
+        if (!modelChoice) break;
+
+        let newModel: string | undefined;
+
+        // Check L<number> format for local models
+        const localMatch = modelChoice.match(/^[Ll](\d+)$/);
+        if (localMatch) {
+          const idx = parseInt(localMatch[1]) - 1;
+          if (idx >= 0 && idx < localModels.length) newModel = localModels[idx];
+        }
+
+        // Check C<number> format for cloud models
+        const cloudMatch = modelChoice.match(/^[Cc](\d+)$/);
+        if (!newModel && cloudMatch) {
+          const idx = parseInt(cloudMatch[1]) - 1;
+          if (idx >= 0 && idx < cloudModels.length) newModel = cloudModels[idx];
+        }
+
+        // Try exact name match (check local first, then cloud)
+        if (!newModel) {
+          if (localModels.includes(modelChoice)) newModel = modelChoice;
+          else if (cloudModels.includes(modelChoice)) newModel = modelChoice;
+        }
+
+        if (newModel) {
+          if (localModels.includes(newModel)) {
             router.setLocalModel(newModel);
-            console.log(chalk.green('✓ Switched to ' + newModel));
+            console.log(chalk.green('✓ Local model switched to ' + newModel));
+          } else {
+            router.setCloudModel(newModel);
+            console.log(chalk.green('✓ Cloud model switched to ' + newModel));
           }
         } else {
-          console.log(chalk.yellow('\nNo local models found. Make sure Ollama/LM Studio is running.'));
+          console.log(chalk.yellow('No matching model found.'));
         }
+        break;
+
+      case '/local':
+        routeOverride = 'local';
+        console.log(chalk.green('✓ Forcing local models for all requests. Type /auto to revert.'));
+        break;
+
+      case '/cloud':
+        routeOverride = 'cloud';
+        console.log(chalk.yellow('✓ Forcing cloud models for all requests. Type /auto to revert.'));
+        break;
+
+      case '/auto':
+        routeOverride = 'auto';
+        console.log(chalk.green('✓ Smart routing enabled (auto mode).'));
         break;
 
       case '/stats':
@@ -638,7 +897,10 @@ LeoCoder will automatically write the file to disk if you follow this format.`,
     const fallbackFilename = guessedFilenameMatch ? guessedFilenameMatch[1] : undefined;
 
     const files = parseCodeBlocks(response.text, fallbackFilename);
-    if (files.length > 0) await applyCodeBlocks(files, process.cwd(), fsTools);
+    if (files.length > 0) {
+      await applyCodeBlocks(files, process.cwd(), fsTools);
+      await updateSessionAfterWrite(process.cwd(), promptText, files.map(f => f.filename));
+    }
   } catch (error: any) {
     stopThinking();
     console.log(chalk.red('\n✗ Error: ' + error.message));
@@ -757,8 +1019,8 @@ const router = new SmartRouter({
   localModel: options.model || localModel,
   cloudModel: options.model || 'llama-3.1-8b-instant',
 
-  // 🔥 IMPORTANT FIXES
-  complexityThreshold: 8,
+  // Balanced threshold: scores 0-5 route local, 6-10 route cloud
+  complexityThreshold: 6,
   preferLocal: options.localOnly ? true : !options.cloudOnly,
 
   onRouteChange: (route) => {
@@ -799,7 +1061,10 @@ function showHelp() {
     ['/read <path>',       'Read and display a file'],
     ['/search <pattern>',  'Search for pattern in files'],
     ['/run <command>',     'Run a shell command'],
-    ['/models',            'Show active models'],
+    ['/local',             'Force local models for all requests'],
+    ['/cloud',             'Force cloud models for all requests'],
+    ['/auto',              'Revert to smart routing (default)'],
+    ['/models',            'Show & switch active models'],
     ['/stats',             'Show token usage stats'],
     ['/bug',               'Report an issue'],
     ['/help',              'Show this help'],
@@ -817,6 +1082,16 @@ function showHelp() {
   console.log('  ' + chalk.white('"create a utils/math.ts with add and subtract functions"'));
   console.log('  ' + chalk.white('"add error handling to the open file"'));
   console.log(chalk.gray('  Files are written to the current working directory (/cd to change).'));
+  console.log();
+  console.log(chalk.cyan.bold('AGENTIC TOOLS'));
+  console.log(chalk.cyan('─'.repeat(60)));
+  console.log(chalk.gray('  The LLM can use these tools automatically in its responses:'));
+  console.log('  ' + chalk.cyan('[READ: path]') + chalk.gray('        — Read a file'));
+  console.log('  ' + chalk.cyan('[RUN: command]') + chalk.gray('       — Run a shell command'));
+  console.log('  ' + chalk.cyan('[SEARCH: pattern]') + chalk.gray('    — Search codebase'));
+  console.log('  ' + chalk.cyan('[EDIT: path]') + chalk.gray('         — Edit a file (with ORIGINAL/UPDATED block)'));
+  console.log('  ' + chalk.cyan('```lang file.ext') + chalk.gray('      — Write/create a file'));
+  console.log(chalk.gray('  Just tell it what to build — it will read, write, edit, and run commands.'));
   console.log();
   console.log(chalk.cyan('─'.repeat(60)));
   console.log();

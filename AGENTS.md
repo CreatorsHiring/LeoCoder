@@ -25,6 +25,8 @@ No test framework exists. No CI pipeline configured.
 
 - **`dist/` is in `.gitignore`** — rebuild after every change before testing via `npm start`
 - **No ESLint config file** exists (devDependencies are installed but no `.eslintrc*` or `eslintConfig` in package.json); `npm run lint` will fail until one is added
+- **Agentic tool loop**: The LLM can autonomously use `[READ]`, `[RUN]`, `[SEARCH]`, `[EDIT]` directives and code blocks to read/write/edit files and run shell commands. The loop runs up to 15 turns per user request.
+- **Two thinking spinners** may appear on some prompts — the first is from a stale `displayThinking()` call, the second is from the tool loop. The old one at the start of `handleInput` was removed but may still appear if the build isn't fresh.
 - **Auto-generated `.leocoder/`** is gitignored — delete it to force context regeneration
 - **Single package, npm only** — no monorepo, no pnpm/yarn, `package-lock.json` only
 - **Node >=16** required; cross-platform (win32, darwin, linux)
