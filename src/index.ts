@@ -541,9 +541,37 @@ if (currentFile && fs.existsSync(currentFile)) {
 
       case '/models':
         const activeProviders = router.getActiveProviders();
-        console.log(chalk.cyan('Active Providers:'));
+        const availableModels = await router.getLocalModels();
+        const curModel = router.getCurrentLocalModel() || 'unknown';
+        console.log(chalk.cyan('\nActive Providers:'));
         console.log('  Local: ' + (activeProviders.local || chalk.gray('None')));
         console.log('  Cloud: ' + (activeProviders.cloud || chalk.gray('None')));
+        if (availableModels.length > 0) {
+          console.log(chalk.cyan('\nAvailable Local Models:'));
+          for (let i = 0; i < availableModels.length; i++) {
+            const m = availableModels[i];
+            const isCurrent = m === curModel;
+            const marker = isCurrent ? chalk.green(' ▸') : '  ';
+            const suffix = isCurrent ? chalk.gray(' (active)') : '';
+            console.log(marker + chalk.cyan((i + 1).toString().padStart(2)) + '. ' + m + suffix);
+          }
+          const modelChoice = await new Promise<string>((resolve) => {
+            rl.question(chalk.white('\nType model name or number to switch, or press Enter to cancel: '), (ans) => resolve(ans));
+          });
+          let newModel: string | undefined;
+          const num = parseInt(modelChoice);
+          if (!isNaN(num) && num >= 1 && num <= availableModels.length) {
+            newModel = availableModels[num - 1];
+          } else if (availableModels.includes(modelChoice)) {
+            newModel = modelChoice;
+          }
+          if (newModel) {
+            router.setLocalModel(newModel);
+            console.log(chalk.green('✓ Switched to ' + newModel));
+          }
+        } else {
+          console.log(chalk.yellow('\nNo local models found. Make sure Ollama/LM Studio is running.'));
+        }
         break;
 
       case '/stats':

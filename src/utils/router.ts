@@ -185,4 +185,30 @@ export class SmartRouter {
       cloud: this.activeCloudProvider?.name,
     };
   }
+
+  async getLocalModels(): Promise<string[]> {
+    if (!this.activeLocalProvider) return [];
+    return this.activeLocalProvider.listModels();
+  }
+
+  async getCloudModels(): Promise<string[]> {
+    if (!this.activeCloudProvider) return [];
+    return this.activeCloudProvider.listModels();
+  }
+
+  getCurrentLocalModel(): string | undefined {
+    return this.localModel;
+  }
+
+  getCurrentCloudModel(): string | undefined {
+    return this.cloudModel;
+  }
+
+  setLocalModel(model: string): void {
+    this.localModel = model;
+  }
+
+  setCloudModel(model: string): void {
+    this.cloudModel = model;
+  }
 }
